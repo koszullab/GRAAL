@@ -139,6 +139,9 @@ def build(base_folder,size_pyramid, factor, min_bin_per_contig):
     contig_info = os.path.join(base_folder,'info_contigs.txt')
     fragments_list = os.path.join(base_folder,'fragments_list.txt')
     init_abs_fragments_contacts = os.path.join(base_folder,'abs_fragments_contacts_weighted.txt')
+    biases_init_abs_fragments_contacts = os.path.join(base_folder,'abs_fragments_contacts_weighted_biases.txt')
+    shutil.move(init_abs_fragments_contacts,biases_init_abs_fragments_contacts)
+    abs_contact_2_coo_file(biases_init_abs_fragments_contacts,init_abs_fragments_contacts)
     all_pyramid_folder = os.path.join(base_folder,'pyramids')
     pyramid_folder = os.path.join(all_pyramid_folder,'pyramid_'+str(size_pyramid)+'_no_thresh')
 
