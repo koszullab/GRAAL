@@ -1,10 +1,10 @@
-Requirements (Hardware):
-------------------------
+Requirements (Hardware)
+-----------------------
 - NVIDIA graphic card (computing capability >=2.0, RAM >= 1.5Go)
 - Linux (Recommended Ubuntu >= 13.10), OSX, Windows
 
-Requirements (Software):
-------------------------
+Requirements (Software)
+-----------------------
 - hdf5
 - hf5py
 - CUDA (Cuda Toolkit >= 5.5)
@@ -26,8 +26,8 @@ Replace:
 by:
     CUDA_ENABLE_GL = True
 
-Installation:
--------------
+Installation
+------------
 - Open a terminal
 - Create a directory your_dir
 - Extract graal.zip to your_dir
@@ -37,8 +37,8 @@ Installation:
 - python main_window.py
 - Follow the instructions in the GUI
 
-Description :
--------------
+Description
+-----------
 (see start_graal.pdf and pending_graal.pdf)
 A pyramid of contact matrices, P = {M0, M1, ..., Mk}, is a data structure representing the 3C/HiC data at different scales.
 The level 0 corresponds to the fragment contact matrix M0. If x is the subsampling/scaling factor, we construct Mi by creating bins of x^i collinear restriction fragments.
@@ -83,3 +83,9 @@ Press 'm' to decrease the size of the fragments
 Press ‘d’ to decrease the contrast of the matrix
 
 Press ‘b’ to increase the contrast of the matrix
+
+Datasets
+--------
+- Trichoderma - https://www.dropbox.com/s/ira4j0wrz3sucl8/trichoderma_qm6a.tar.gz
+- Cerevisiae - https://www.dropbox.com/s/nx7tzhbzrp1l11t/cerevisiae_malaisyan_strain.tar.gz
+- Both genomes - https://www.dropbox.com/s/7nbc3rotu3g8pt4/genomes.tar.gz
