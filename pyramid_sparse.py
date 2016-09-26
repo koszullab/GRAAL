@@ -1,5 +1,6 @@
+#!/usr/bin/evn python
+# -*- coding: utf-8 -*-
 __author__ = 'hervemn'
-# coding: utf-8
 import os
 import encodings
 import shutil
