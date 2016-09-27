@@ -321,7 +321,7 @@ class LoaderWindow(wx.Frame):
     def OnLoadFasta(self, event):
         # Args below are: parent, question, dialog title, default answer
         # dd = wx.FileDialog(None, "Select Fasta File", "~/", 0, (10, 10), wx.Size(400, 300))
-        wcd = "All files(*.*)|*.*|Text files (*.txt)|*.txt|"
+        wcd = "All files(*.*)|*.*|Text files (*.txt)|*.txt"
         dd = wx.FileDialog(None, "Select Fasta File","", "", wcd, wx.FD_OPEN | wx.FD_FILE_MUST_EXIST)
 
         # This function returns the button pressed to close the dialog
