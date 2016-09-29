@@ -3,6 +3,8 @@ GRAAL
 
 **GRAAL** (Genome Re-Assembly Assessing Likelihood) is a Hi-C data based reassembler written in Python and CUDA. It uses an MCMC (Markov Chain Monte Carlo) method to find and evaluate the most likely genome given a set of genome-wide contact data through a succession of various operations (cut, insert, flip, swap, etc.) performed at various scales based on the initial genome's restriction fragments. A complete description and demonstration are available in full [here](http://www.nature.com/ncomms/2014/141217/ncomms6695/full/ncomms6695.html).
 
+This repo provides the software and the datasets used in the above paper - see [below](https://github.com/koszullab/GRAAL#generating-your-own-datasets) if you want to use GRAAL to reassemble your own genome.
+
 Requirements (Hardware)
 -----------------------
 - NVIDIA graphic card (computing capability >=2.0, RAM >= 1.5Go)
@@ -45,6 +47,7 @@ Installation
 Description
 -----------
 ([Detailed explanation](https://github.com/koszullab/GRAAL/blob/master/GRAALprinciple.pdf) of GRAAL's algorithm)
+
 A pyramid of contact matrices, P = {M0, M1, ..., Mk}, is a data structure representing the 3C/HiC data at different scales.
 The level 0 corresponds to the fragment contact matrix M0. If x is the subsampling/scaling factor, we construct Mi by creating bins of x^i collinear restriction fragments.
 G0 is the initial genome used to align the reads.
