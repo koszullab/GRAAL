@@ -1,3 +1,8 @@
+GRAAL
+=====
+
+**GRAAL** (Genome Re-Assembly Assessing Likelihood) is a HiC data based reassembler written in Python and CUDA. It uses 
+
 Requirements (Hardware)
 -----------------------
 - NVIDIA graphic card (computing capability >=2.0, RAM >= 1.5Go)
@@ -39,7 +44,7 @@ Installation
 
 Description
 -----------
-(see start_graal.pdf and pending_graal.pdf)
+([Detailed explanation](https://github.com/koszullab/GRAAL/blob/master/GRAALprinciple.pdf) of GRAAL's algorithm)
 A pyramid of contact matrices, P = {M0, M1, ..., Mk}, is a data structure representing the 3C/HiC data at different scales.
 The level 0 corresponds to the fragment contact matrix M0. If x is the subsampling/scaling factor, we construct Mi by creating bins of x^i collinear restriction fragments.
 G0 is the initial genome used to align the reads.
