@@ -1,7 +1,7 @@
 GRAAL
 =====
 
-**GRAAL** (Genome Re-Assembly Assessing Likelihood) is a HiC data based reassembler written in Python and CUDA. It uses 
+**GRAAL** (Genome Re-Assembly Assessing Likelihood) is a Hi-C data based reassembler written in Python and CUDA. It uses an MCMC (Markov Chain Monte Carlo) method to find and evaluate the most likely genome given a set of genome-wide contact data through a succession of various operations (cut, insert, flip, swap, etc.) performed at various scales based on the initial genome's restriction fragments. A complete description and demonstration are available in full [here](http://www.nature.com/ncomms/2014/141217/ncomms6695/full/ncomms6695.html).
 
 Requirements (Hardware)
 -----------------------
