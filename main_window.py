@@ -837,7 +837,7 @@ class GraalFrame(wx.Frame):
 
 if __name__ == "__main__":
     gettext.install("app") # replace with the appropriate catalog name
-    app = wx.PySimpleApp(0)
+    app = wx.App(0)
     wx.InitAllImageHandlers()
     frame_1 = MainWindow(None, wx.ID_ANY, "")
     app.SetTopWindow(frame_1)
