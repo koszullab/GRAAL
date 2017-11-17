@@ -24,7 +24,7 @@ import optim_hic_curve as opti_rv
 from OpenGL.arrays import vbo
 from scipy import stats
 import timing
-import Image
+from PIL import Image
 timings = timing.Timing()
 
 
