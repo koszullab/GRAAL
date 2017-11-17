@@ -12,6 +12,14 @@ Requirements (Hardware)
 
 Requirements (Software)
 -----------------------
+First, install the Cuda Toolkit from NVidia's website.
+
+On Ubuntu 16.04, all software requirements except `CUDA Toolkit` and `PyCuda with OpenGL support` can be installed by running the command `pip install -r requirements.txt`. If not using ubuntu, see the list at the end of this section.
+
+Finally, install PyCuda with opengl support, by following the instructions [here](http://wiki.tiker.net/PyCuda/Installation), until you reach the command starting with "./configure.py". Append "--cuda-enable-gl" to that command and then continue as normal.
+
+If you are not using Ubuntu, manually install these packages:
+
 - hdf5
 - hf5py
 - CUDA (Cuda Toolkit >= 5.5)
@@ -24,14 +32,6 @@ Requirements (Software)
 - matplotlib
 - scipy
 - PyOpenGL
-
-To install pycuda with opengl support, first, follow the instructions at http://wiki.tiker.net/PyCuda/Installation .
-After running "python configure.py" change the file siteconf.py as follows:
-
-Replace:
-    CUDA_ENABLE_GL = False 
-by:
-    CUDA_ENABLE_GL = True
 
 Installation
 ------------
