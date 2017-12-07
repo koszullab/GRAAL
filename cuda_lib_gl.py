@@ -1258,7 +1258,7 @@ class sampler():
                     else:
                         d = ((start_fi - start_fj - len_fj) + (len_fj + len_fi)/2.)/1000.
                     if d < max_dist_kb:
-                        id_bin = d / size_bin_kb
+                        id_bin = (d / size_bin_kb).astype(np.int)
                         self.dict_collect[self.bins[id_bin]].append(ncontacts)
         for id_bin in xrange(0, len(self.bins)):
             k = self.bins[id_bin]
