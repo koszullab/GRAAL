@@ -6,7 +6,7 @@ import math, sys, time
 import os
 import sys, socket
 import pyramid_sparse as pyr
-import Image
+from PIL import Image
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from OpenGL.GLUT import *

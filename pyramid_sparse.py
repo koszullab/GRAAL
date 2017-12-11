@@ -1219,8 +1219,8 @@ class level():
         self.sparse_mat_csc = sp.csc_matrix((self.np_2_scipy_sparse[2,:], self.np_2_scipy_sparse[0:2,:]), shape=(self.n_frags, self.n_frags))
         #### end loading sparse matrix #####
 
-        self.pos_vect_frags_4_GL = np.ndarray((self.n_frags, 4), dtype=np.float32)
-        self.col_vect_frags_4_GL = np.ndarray((self.n_frags, 4), dtype=np.float32)
+        self.pos_vect_frags_4_GL = np.ndarray((self.n_frags[0], 4), dtype=np.float32)
+        self.col_vect_frags_4_GL = np.ndarray((self.n_frags[0], 4), dtype=np.float32)
 
         self.dict_contigs = dict()
         ContFrags = pyramid.spec_level[str(self.level)]["contigs_dict"]
