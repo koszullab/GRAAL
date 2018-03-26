@@ -58,7 +58,7 @@ class ProgressBar(object):
         # Check if render is called for the first time
         if self.progress != None:
             self.clear()
-        self.progress = (bar_width * percent.astype(np.int)) / 100
+        self.progress = (bar_width * np.int32(percent)) / 100
         data = self.TEMPLATE % {
             'percent': percent,
             'color': self.color,
