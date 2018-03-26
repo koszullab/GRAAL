@@ -1,6 +1,5 @@
-#!/usr/bin/evn python
-# -*- coding: utf-8 -*-
 __author__ = 'hervemn'
+# coding: utf-8
 import os
 import encodings
 import shutil
@@ -39,9 +38,6 @@ def build_and_filter(base_folder, size_pyramid, factor):
     contig_info = os.path.join(init_pyramid_folder_level_0, '0_contig_info.txt')
     fragments_list = os.path.join(init_pyramid_folder_level_0, '0_fragments_list.txt')
     init_abs_fragments_contacts = os.path.join(init_pyramid_folder_level_0, '0_abs_frag_contacts.txt')
-    biases_init_abs_fragments_contacts = os.path.join(base_folder,'abs_fragments_contacts_weighted_biases.txt')
-    shutil.move(init_abs_fragments_contacts,biases_init_abs_fragments_contacts)
-    abs_contact_2_coo_file(biases_init_abs_fragments_contacts,init_abs_fragments_contacts)
     ###########################################
 
     init_pyramid_file = os.path.join(init_pyramid_folder, "pyramid.hdf5")
@@ -143,9 +139,6 @@ def build(base_folder,size_pyramid, factor, min_bin_per_contig):
     contig_info = os.path.join(base_folder,'info_contigs.txt')
     fragments_list = os.path.join(base_folder,'fragments_list.txt')
     init_abs_fragments_contacts = os.path.join(base_folder,'abs_fragments_contacts_weighted.txt')
-    biases_init_abs_fragments_contacts = os.path.join(base_folder,'abs_fragments_contacts_weighted_biases.txt')
-    shutil.move(init_abs_fragments_contacts,biases_init_abs_fragments_contacts)
-    abs_contact_2_coo_file(biases_init_abs_fragments_contacts,init_abs_fragments_contacts)
     all_pyramid_folder = os.path.join(base_folder,'pyramids')
     pyramid_folder = os.path.join(all_pyramid_folder,'pyramid_'+str(size_pyramid)+'_no_thresh')
 
@@ -281,7 +274,7 @@ def fill_sparse_pyramid_level(pyramid_handle, level, contact_file, nfrags):
         line = all_lines[i]
         dat = line.split()
         mates = [int(dat[0]), int(dat[1])]
-        nc = int(dat[2])
+        nc = int(float(dat[2]))
         mates.sort()
         f1 = mates[0]
         f2 = mates[1]
@@ -583,24 +576,9 @@ def remove_problematic_fragments(contig_info, fragments_list, abs_fragments_cont
     nfrags = level['nfrags'][0]
     print "nfrags = ", nfrags
     sparse_mat_csr = sp.csr_matrix((np_2_scipy_sparse[2,:], np_2_scipy_sparse[0:2,:]), shape=(nfrags, nfrags))
-    sparse_mat_csc = sp.csc_matrix((np_2_scipy_sparse[2,:], np_2_scipy_sparse[0:2,:]), shape=(nfrags, nfrags))
-    np_nfrags = np.float32(nfrags)
-    collect_sparsity = []
-    step = 0
+
     full_mat = sparse_mat_csr + sparse_mat_csr.transpose()
     collect_sparsity = np.float32(np.diff(full_mat.indptr)) / np.float32(nfrags)
-    # for i in range(0, nfrags):
-    #     v_r = sparse_mat_csr[i, :]
-    #     v_c = sparse_mat_csc[i, :]
-    #     non_zeros = v_r.nnz + v_c.nnz
-    #     # sparsity = (np_nfrags - non_zeros)/np_nfrags
-    #     sparsity = (non_zeros)/np_nfrags
-    #     collect_sparsity.append(sparsity)
-    #     step += 1
-    #     if step%1000 == 0:
-    #         pt = step * 100 / nfrags
-    #         p.render(pt, 'step %s\nProcessing...\nDescription: computing sparsity per frag.' % step)
-    # collect_sparsity = np.array(collect_sparsity,dtype=np.float32)
     mean_spars = collect_sparsity.mean()
     std_spars = collect_sparsity.std()
     max_spars = collect_sparsity.max()
@@ -623,7 +601,7 @@ def remove_problematic_fragments(contig_info, fragments_list, abs_fragments_cont
 
     print "cleaning : start"
     import numpy as np
-    print "number of fragments to remove = ", len(list_fragments_problem)
+
 
     handle_new_fragments_list = open(new_fragments_list_file,'w')
     handle_new_fragments_list.write("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" % ('id', 'chrom', 'start_pos', 'end_pos',
@@ -632,6 +610,18 @@ def remove_problematic_fragments(contig_info, fragments_list, abs_fragments_cont
 
     # build np_id_2_frag dictionary
     np_id_2_frag = get_frag_info_from_fil(fragments_list)
+    ######################################### remove fragments which are too small #####################################
+    list_short_frags = []
+    thresh_size = 5
+    for np_index in np_id_2_frag:
+        tmp_frag = np_id_2_frag[np_index]
+        if tmp_frag['length'] < thresh_size:
+            list_short_frags.append(np_index)
+    list_fragments_problem = list(list_fragments_problem)
+    list_fragments_problem.extend(list_short_frags)
+    list_fragments_problem = np.unique(list_fragments_problem)
+    print "number of fragments to remove = ", len(list_fragments_problem)
+    ######################################### remove fragments which are too small #####################################
     n_total_frags = len(np_id_2_frag.keys())
     # build Contigs.init_contigs dictionary ( need to know the number of frags per contig)
     init_contigs, list_init_contig = get_contig_info_from_file(contig_info)
@@ -649,8 +639,7 @@ def remove_problematic_fragments(contig_info, fragments_list, abs_fragments_cont
     # list_init_contig.sort()
 
     for chrom in list_init_contig:
-        contig_info_dict[chrom] ={'n_frags': init_contigs[chrom]['n_frags'],'n_new_frags':0,
-                                  'length_kb':0}
+        contig_info_dict[chrom] = {'n_frags': init_contigs[chrom]['n_frags'],'n_new_frags':0, 'length_kb':0}
 
     new_id_frag_rel = 0
     new_id_frag_abs = 1
@@ -884,13 +873,236 @@ def get_frag_info_from_fil(fragments_list):
 
         data = line_contig.split('\t')
         fragments_info[id] = dict()
+        start = int(data[2])
+        end = int(data[3])
         fragments_info[id]["init_contig"] = data[1]
         fragments_info[id]["index"] = data[0]
+        fragments_info[id]["length"] = end - start
         id += 1
+
 
     return fragments_info
 
+def new_remove_problematic_fragments(contig_info, fragments_list, abs_fragments_contacts,new_contig_list_file,
+                                 new_fragments_list_file, new_abs_fragments_contacts_file,pyramid):
 
+    import numpy as np
+
+    p = ProgressBar('blue', width=20, block='▣', empty='□')
+
+    # full_resolution = pyramid["0"]
+    level = pyramid["0"]
+    np_2_scipy_sparse = level['data']
+    nfrags = level['nfrags'][0]
+    print "nfrags = ", nfrags
+    ####################################################################################################################
+    sparse_mat_csr = sp.csr_matrix((np_2_scipy_sparse[2,:], np_2_scipy_sparse[0:2,:]), shape=(nfrags, nfrags))
+    full_mat = sparse_mat_csr + sparse_mat_csr.transpose()
+    collect_sparsity = np.float32(np.diff(full_mat.indptr)) / np.float32(nfrags)
+    mean_spars = collect_sparsity.mean()
+    std_spars = collect_sparsity.std()
+    max_spars = collect_sparsity.max()
+    print "n init frags = ", nfrags
+    print "mean sparsity = ", mean_spars
+    print "std sparsity = ", std_spars
+    print "max_sparsity = ", max_spars
+    thresh = mean_spars - 1.01 * std_spars # para g1
+    list_fragments_problem = np.nonzero(collect_sparsity<=thresh)[0]
+    print "cleaning : start"
+    import numpy as np
+    print "number of fragments to remove = ", len(list_fragments_problem)
+    handle_new_fragments_list = open(new_fragments_list_file,'w')
+    handle_new_fragments_list.write("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" % ('id', 'chrom', 'start_pos', 'end_pos',
+                                                                              'size', 'gc_content', 'accu_frag',
+                                                                              'frag_start', 'frag_end'))
+    ####################################################################################################################
+    # build np_id_2_frag dictionary
+    np_id_2_frag = get_frag_info_from_fil(fragments_list)
+    n_total_frags = len(np_id_2_frag.keys())
+    # build Contigs.init_contigs dictionary ( need to know the number of frags per contig)
+    init_contigs, list_init_contig = get_contig_info_from_file(contig_info)
+    ####################################################################################################################
+    prob_frag = dict()
+    for np_index in list_fragments_problem:
+        tmp_frag = np_id_2_frag[np_index]
+        id = tmp_frag['index'] + '-' + tmp_frag['init_contig']
+        prob_frag[id] = {'init_contig' : tmp_frag['init_contig'],'index' :tmp_frag['index']}
+
+#    print prob_frag
+    contig_info_dict = dict()
+
+    # list_init_contig = init_contigs.keys()
+    # list_init_contig.sort()
+
+    for chrom in list_init_contig:
+        contig_info_dict[chrom] ={'n_frags': init_contigs[chrom]['n_frags'],'n_new_frags':0,
+                                  'length_kb':0}
+
+    ####################################################################################################################
+    new_id_frag_rel = 0
+    new_id_frag_abs = 1
+    init_id_frag_abs = 0
+    old_2_new_frags = dict()
+    handle_fragments_list = open(fragments_list,'r')
+    handle_fragments_list.readline()
+    spec_new_frags = dict()
+    tmp_cumul = {'start_pos':0,'end_pos': 0,'chrom':0,'size':0,'accu_frag':0,'gc_content':[],'lock': False,'init_id_frags':[] ,
+                 'list_chrom':[]}
+    step = 0
+    p = ProgressBar('blue', width=20, block='▣', empty='□')
+    while 1:
+        line_fragment = handle_fragments_list.readline()
+        if not line_fragment:
+            if tmp_cumul['lock']:
+                for ele in tmp_cumul['init_id_frags']:
+                    old_2_new_frags[ele] = 'destroyed'
+                new_id_frag_abs -= 1
+            handle_fragments_list.close()
+            handle_new_fragments_list.close()
+            break
+        step += 1
+        pt = step*100/n_total_frags
+
+        init_id_frag_abs += 1
+
+        data = line_fragment.split('\t')
+        id = int(data[0])
+        if id == 1:
+            new_id_frag_rel = 1
+            if not tmp_cumul['lock']:
+                new_id_frag_abs += 0
+            else:
+                for ele in tmp_cumul['init_id_frags']:
+                    old_2_new_frags[ele] = 'destroyed'
+            tmp_cumul['gc_content'] = []
+            tmp_cumul['start_pos'] = 0
+            tmp_cumul['init_id_frags'] = []
+            tmp_cumul['list_chrom'] = []
+            tmp_cumul['frag_start'] = []
+            tmp_cumul['frag_end'] = []
+            tmp_cumul['size'] = 0  ###################### debug
+        chrom = data[1]
+        start_pos = data[2]
+        end_pos = data[3]
+        size = int(data[4])
+        gc_content = float(data[5])
+        accu_frag = int(data[6])
+        frag_start = int(data[7])
+        frag_end = int(data[8])
+        name_frag = str(id)+'-'+chrom
+        lock = prob_frag.has_key(name_frag)
+
+        tmp_cumul['chrom'] = chrom
+        tmp_cumul['list_chrom'].append(chrom)
+        tmp_cumul['end_pos'] = end_pos
+        tmp_cumul['size'] += size
+        tmp_cumul['accu_frag'] += accu_frag
+        tmp_cumul['lock'] = prob_frag.has_key(name_frag)
+        if size <= 1:
+            tmp_cumul['lock'] = True
+        tmp_cumul['frag_start'].append(frag_start)
+        tmp_cumul['frag_end'].append(frag_end)
+
+        tmp_cumul['gc_content'].append(gc_content)
+        tmp_cumul['init_id_frags'].append(init_id_frag_abs)
+
+        old_2_new_frags[init_id_frag_abs] = new_id_frag_abs
+        if not lock:
+            for ele in tmp_cumul['list_chrom']:
+                if not(ele == tmp_cumul['list_chrom'][0]):
+                    print "warning problem hetero fragments!!!!!!!!!!!!!!!"
+
+            contig_info_dict[chrom]['n_new_frags'] +=1
+            contig_info_dict[chrom]['length_kb'] += tmp_cumul['size']
+
+#            str_frag_start = str(min(tmp_cumul["frag_start"]))
+#            str_frag_end = str(max(tmp_cumul["frag_end"]))
+            str_frag_start = str(new_id_frag_rel)
+            str_frag_end = str(new_id_frag_rel)
+            spec_new_frags[new_id_frag_abs] = {'accu_frag':accu_frag,'gc_content':tmp_cumul['gc_content'],'chrom':chrom}
+            handle_new_fragments_list.write("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n"%(str(new_id_frag_rel),chrom,tmp_cumul['start_pos'],
+                                                                            tmp_cumul['end_pos'],str(tmp_cumul['size']),
+                                                                            str(np.array(tmp_cumul['gc_content']).mean()),tmp_cumul['accu_frag'],str_frag_start,str_frag_end))
+            tmp_cumul['start_pos'] = end_pos
+            tmp_cumul['end_pos'] = start_pos
+            tmp_cumul['size'] = 0
+            tmp_cumul['accu_frag'] =0
+            tmp_cumul['lock'] = prob_frag.has_key(name_frag)
+            tmp_cumul['chrom'] = chrom
+            tmp_cumul['gc_content'] = []
+            tmp_cumul['init_id_frags'] = []
+            tmp_cumul['list_chrom'] = []
+            tmp_cumul['frag_start'] = []
+            tmp_cumul['frag_end'] = []
+            new_id_frag_rel += 1
+            new_id_frag_abs += 1
+        else:
+            p.render(pt ,'step %s\nProcessing...\nDescription: removing bad fragments.' % step)
+    p.render(pt ,'step %s\nProcessing...\nDescription: removing bad fragments.' % step)
+    ####################################################################################################################
+    # Update contig info file
+    print 'max new id = ', new_id_frag_abs
+    handle_new_contigs_list = open(new_contig_list_file,'w')
+    handle_new_contigs_list.write('%s\t%s\t%s\t%s\n' % ('contig','length_kb','n_frags','cumul_length'))
+
+    handle_contig_info = open(contig_info,'r')
+    handle_contig_info.readline()
+    cumul_length = 0
+
+    while 1:
+        line_contig = handle_contig_info.readline()
+        if not line_contig:
+            handle_contig_info.close()
+            handle_new_contigs_list.close()
+            break
+        data = line_contig.split('\t')
+        contig = data[0]
+        # length_kb = data[1]
+        length_kb = contig_info_dict[contig]['length_kb']
+        n_frags = contig_info_dict[contig]['n_new_frags']
+        if n_frags >0:
+            handle_new_contigs_list.write('%s\t%s\t%s\t%s\n' % (contig,str(length_kb),str(n_frags),str(cumul_length)))
+            cumul_length += n_frags
+        else:
+            print contig +' has been deleted...'
+    ####################################################################################################################
+    print "update contacts files..."
+    handle_new_abs_fragments_contacts = open(new_abs_fragments_contacts_file,'w')
+    handle_abs_fragments_contacts = open(abs_fragments_contacts,'r')
+    handle_new_abs_fragments_contacts.write("%s\t%s\t%s\n"%('id_frag_a','id_frag_b','n_contact'))
+    all_lines = handle_abs_fragments_contacts.readlines()
+    sparse_dict = dict()
+    for id_line in range(1, len(all_lines)):
+        line = all_lines[id_line]
+        dat = line.split('\t')
+        fa = int(dat[0])
+        fb = int(dat[1])
+        nc = int(dat[2])
+        new_abs_id_frag_a = old_2_new_frags[fa + 1] # old_2_new_frags 1-based index
+        new_abs_id_frag_b = old_2_new_frags[fb + 1] # old_2_new_frags 1-based index
+        if not(new_abs_id_frag_a == 'destroyed' or new_abs_id_frag_b == 'destroyed'):
+            mates = [new_abs_id_frag_a - 1, new_abs_id_frag_b - 1]
+            mates.sort()
+            f1 = mates[0]
+            f2 = mates[1]
+            if f1 in sparse_dict:
+                if f2 in sparse_dict[f1]:
+                    sparse_dict[f1][f2] += nc
+                else:
+                    sparse_dict[f1][f2] = nc
+            else:
+                sparse_dict[f1] = dict()
+                sparse_dict[f1][f2] = nc
+    keys = sparse_dict.keys()
+    keys.sort()
+    for fa in keys:
+        d_fb = sparse_dict[fa]
+        keys_b = d_fb.keys()
+        keys_b.sort()
+        for fb in keys_b:
+            nc = d_fb[fb]
+            handle_new_abs_fragments_contacts.write("%s\t%s\t%s\n"%(str(fa), str(fb), str(nc)))
+    handle_new_abs_fragments_contacts.close()
 
 
 class pyramid():
@@ -916,12 +1128,13 @@ class pyramid():
             self.spec_level[str(i)]["level_folder"] = level_folder
             self.spec_level[str(i)]["fragments_list_file"] = os.path.join(level_folder, str(i) + "_fragments_list.txt")
             self.spec_level[str(i)]["contig_info_file"] = os.path.join(level_folder, str(i) + "_contig_info.txt")
-            frag_dictionary, contig_dictionary , list_contigs, list_contigs_id = self.build_frag_dictionnary(self.spec_level[str(i)]["fragments_list_file"],i)
+            frag_dictionary, contig_dictionary, list_contigs, list_contigs_id = self.build_frag_dictionnary(self.spec_level[str(i)]["fragments_list_file"],i)
             if i == 0:
                 self.list_contigs_name = list_contigs
                 self.list_contigs_id = list_contigs_id
             self.spec_level[str(i)]["fragments_dict"] = frag_dictionary
             self.spec_level[str(i)]["contigs_dict"] = contig_dictionary
+
             if find_super_index:
                 # print "update super index"
                 super_index_file = os.path.join(level_folder,str(i)+"_sub_2_super_index_frag.txt")
@@ -1151,26 +1364,28 @@ class pyramid():
         f = open(genome_fasta, 'r')
         self.dict_sequence_contigs = dict()
         all_lines = f.readlines()
-        id_chrom = all_lines[0][1:-1]
+        id_chrom = all_lines[0][1:-1].replace('\n', '').replace('\r', '')
         self.dict_sequence_contigs[id_chrom] = ''
         start = 1
         chrom_list = []
         for i in xrange(1, len(all_lines)):
             if all_lines[i][0] == '>':
-                print id_chrom
+                # print id_chrom
                 chrom_list.append(id_chrom)
                 self.dict_sequence_contigs[id_chrom] = ''.join(all_lines[start:i])
                 start = i + 1
-                id_chrom = all_lines[i][1:-1]
+                id_chrom = all_lines[i][1:-1].replace('\n', '').replace('\r', '')
                 self.dict_sequence_contigs[id_chrom] = ''
 
-        print id_chrom
+        chrom_list.append(id_chrom)
         self.dict_sequence_contigs[id_chrom] = ''.join(all_lines[start:-1])
 
-        # chrom_list = self.dict_sequence_contigs.keys()
+        chrom_list = self.dict_sequence_contigs.keys()
         # chrom_list.sort()
         for chrom in chrom_list:
             self.dict_sequence_contigs[chrom] = self.dict_sequence_contigs[chrom].replace('\n', '')
+            self.dict_sequence_contigs[chrom] = self.dict_sequence_contigs[chrom].replace('\r', '')
+
         # print chrom_list
 
 class level():
@@ -1219,8 +1434,8 @@ class level():
         self.sparse_mat_csc = sp.csc_matrix((self.np_2_scipy_sparse[2,:], self.np_2_scipy_sparse[0:2,:]), shape=(self.n_frags, self.n_frags))
         #### end loading sparse matrix #####
 
-        self.pos_vect_frags_4_GL = np.ndarray((self.n_frags[0], 4), dtype=np.float32)
-        self.col_vect_frags_4_GL = np.ndarray((self.n_frags[0], 4), dtype=np.float32)
+        self.pos_vect_frags_4_GL = np.ndarray((self.n_frags, 4), dtype=np.float32)
+        self.col_vect_frags_4_GL = np.ndarray((self.n_frags, 4), dtype=np.float32)
 
         self.dict_contigs = dict()
         ContFrags = pyramid.spec_level[str(self.level)]["contigs_dict"]
@@ -1232,7 +1447,8 @@ class level():
 
         n_contigs = len(ContFrags.keys())
         # print "n init contigs = ", n_contigs
-        HSV_tuples = [(x*2.5/n_contigs, 0.5, 0.5) for x in range(n_contigs)]
+        fact_cmap = 2.5
+        HSV_tuples = [(x * fact_cmap / n_contigs, 0.5, 0.5) for x in range(n_contigs)]
         RGB_tuples = map(lambda x: colorsys.hsv_to_rgb(*x), HSV_tuples)
         self.distri_frag = []
 
@@ -1414,7 +1630,13 @@ class level():
         list_contigs = ContFrags.keys()
         list_contigs.sort()
 
-        list_contigs = self.pyramid.spec_level[str(self.level)]['contigs_dict'].keys()
+        list_contigs_tmp = self.pyramid.spec_level[str(self.level)]['contigs_dict'].keys()
+        # print "list contigs = ", list_contigs
+        list_contigs = []
+        for ele in list_contigs_tmp:
+            if not isinstance(ele, basestring):
+                list_contigs.append(ele)
+
         list_contigs.sort()
         self.list_seq = []
         for cont in list_contigs:
@@ -1443,7 +1665,7 @@ class level():
         for id_cont in list_id_contigs:
             list_frags = np.nonzero(id_c_frag == id_cont)[0]
             if np.all(activ_frag[list_frags] == 1):
-                print "id contig = ", id_cont
+                # print "id contig = ", id_cont
                 list_contigs_ok.append(id_cont)
                 header = '>3C-assembly|contig_'+str(id_cont)
                 handle_info_frags.write("%s\n" % (header))
@@ -1472,17 +1694,18 @@ class level():
         for id_cont in list_contigs_ok:
             cont_seq = list_seq_new_contigs[id_cont]
             header = '>3C-assembly|contig_'+str(id_cont)
-            print header
+            # print header
             handle_new_fasta.write("%s\n" % (header))
             len_line = 61
             len_seq = len(cont_seq)
-            idx_cut_EOL = range(0, len_seq, len_line)
-            for id_s in range(1,len(idx_cut_EOL)):
-                line = cont_seq[idx_cut_EOL[id_s -1]: idx_cut_EOL[id_s]]
-                handle_new_fasta.write("%s\n" % (line))
-            if idx_cut_EOL[-1] != len_seq - 1:
-                line = cont_seq[idx_cut_EOL[-1]:]
-                handle_new_fasta.write("%s\n" % (line))
+            if len_seq >0:
+                idx_cut_EOL = range(0, len_seq, len_line)
+                for id_s in range(1,len(idx_cut_EOL)):
+                    line = cont_seq[idx_cut_EOL[id_s -1]: idx_cut_EOL[id_s]]
+                    handle_new_fasta.write("%s\n" % (line))
+                if idx_cut_EOL[-1] != len_seq - 1:
+                    line = cont_seq[idx_cut_EOL[-1]:]
+                    handle_new_fasta.write("%s\n" % (line))
 
         handle_new_fasta.close()
         handle_info_frags.close()

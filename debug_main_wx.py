@@ -478,6 +478,8 @@ class GraalFrame(wx.Frame):
 
     def create_main_panel(self):
         self.init_plot()
+        self.init_plot_model()
+        self.init_plot_coverage()
         self.panel = wx.Panel(self)
         ################################################################################################################
         self.hboxfig = wx.StaticBox(self.panel, -1, 'Simulation')
@@ -519,7 +521,7 @@ class GraalFrame(wx.Frame):
         self.vsizerfig.Add(self.subbox1, border=15,flag=wx.ALL |wx.GROW,)
         self.vsizerfig.AddSpacer(3)
         self.vsizerfig.Add(self.subbox2, border=15,flag=wx.ALL |wx.GROW,)
-         ################################################################################################################
+        ################################################################################################################
         ################################################################################################################
         self.vsizer_left = wx.FlexGridSizer(2, 1, 1, 1)
         self.layout_parameters()
@@ -527,19 +529,27 @@ class GraalFrame(wx.Frame):
         self.layout_run()
         self.vsizer_left.Add(self.vsizer_run, 1, flag=wx.EXPAND)
         ################################################################################################################
+        self.vboxdiagnostic = wx.StaticBox(self.panel, -1, 'Diagnostic')
+        self.subboxdiag = wx.StaticBoxSizer(self.vboxdiagnostic, wx.HORIZONTAL)
+        self.canvas_model = FigCanvas(self.panel, -1, self.fig_model)
+        self.subboxdiag.Add(self.canvas_model, border=5, flag=wx.ALL |wx.GROW| wx.BOTTOM,)
+        self.canvas_coverage = FigCanvas(self.panel, -1, self.fig_coverage)
+        self.subboxdiag.Add(self.canvas_coverage, border=5, flag=wx.ALL |wx.GROW| wx.BOTTOM,)
+        self.vsizer_left.Add(self.subboxdiag, 1, flag=wx.EXPAND)
+        ################################################################################################################
         self.BigHbox = wx.BoxSizer(wx.HORIZONTAL)
         self.BigHbox.Add(self.vsizer_left, 0.5, border=15, flag=wx.ALL)
         self.BigHbox.Add(self.vsizerfig, 10, border=15, flag=wx.LEFT | wx.TOP| wx.GROW,)
         # self.BigHbox.Add(self.canvas, 10, border=15, flag=wx.LEFT | wx.TOP | wx.GROW,)
-
         self.panel.SetSizer(self.BigHbox)
         self.BigHbox.Fit(self)
         self.panel.SetMinSize(self.BigHbox.GetMinSize())
+
     def layout_parameters(self):
 
         self.vboxparam = wx.StaticBox(self.panel, -1, 'Parameters')
         self.vsizer_param = wx.StaticBoxSizer(self.vboxparam)
-        self.gs_param = wx.FlexGridSizer(8, 2, 20, 20)
+        self.gs_param = wx.FlexGridSizer(9, 2, 20, 20)
         ################################################################################################################
         self.txt_sub_sample_lev = wx.StaticText(self.panel, -1, _("Pyramid level:"))
         self.cmb_sub_sample_lev = wx.ComboBox(self.panel, -1, value=self.list_sub_sample_fact[-1],
@@ -574,6 +584,14 @@ class GraalFrame(wx.Frame):
         self.cb_explode_genome = wx.CheckBox(self.panel, -1, "Explode Genome", style=wx.ALIGN_CENTER_HORIZONTAL)
         self.cb_explode_genome.SetValue(True)
         ################################################################################################################
+        self.txt_power_exp = wx.StaticText(self.panel, -1, _("Jumping distribution power coef:"))
+        self.list_coef = [str(i) for i in range(1, 10)]
+        self.cmb_coef = wx.ComboBox(self.panel, -1, value="3", choices=self.list_coef,
+                                              style=wx.CB_READONLY, )
+        ################################################################################################################
+        self.cb_low_coverage = wx.CheckBox(self.panel, -1, "Low coverage data", style=wx.ALIGN_CENTER_HORIZONTAL)
+        self.cb_low_coverage.SetValue(True)
+        ################################################################################################################
 
 
         list_param = [self.txt_sub_sample_lev,self.cmb_sub_sample_lev,
@@ -581,9 +599,9 @@ class GraalFrame(wx.Frame):
                       self.txt_ctg_blacklisted, self.cmb_ctg_blacklisted,
                       self.txt_n_cycles, (self.text_ctrl_n_cycles, 1, wx.EXPAND),
                       self.txt_n_neighbours, self.cmb_n_neighbours,
-                      self.cb_sample_param,(wx.StaticText(self.panel, -1), wx.EXPAND),
-                      self.cb_allow_repeat,(wx.StaticText(self.panel, -1), wx.EXPAND),
-                      self.cb_explode_genome,(wx.StaticText(self.panel, -1), wx.EXPAND)]
+                      self.txt_power_exp, self.cmb_coef,
+                      self.cb_sample_param,self.cb_low_coverage,
+                      self.cb_allow_repeat, self.cb_explode_genome]
 
         self.gs_param.AddMany(list_param)
         self.vsizer_param.Add(self.gs_param, proportion=1, flag=wx.EXPAND)
@@ -655,10 +673,85 @@ class GraalFrame(wx.Frame):
         label = "Start" if self.paused else "Computing..."
         self.start_button.SetLabel(label)
 
+    def init_plot_coverage(self):
+        self.dpi = 100
+        self.fig_coverage = Figure((3.0, 3.0), dpi=self.dpi)
+
+        self.axes_model = self.fig_coverage.add_subplot(111)
+        self.axes_model.set_axis_bgcolor('black')
+        self.axes_model.set_title('Coverage per bin', size=8)
+
+        pylab.setp(self.axes_model.get_xticklabels(), fontsize=8)
+        pylab.setp(self.axes_model.get_yticklabels(), fontsize=8)
+
+        self.axes_model.set_xlabel('Bins Id', fontsize=8)
+        self.axes_model.set_ylabel('Coverage (contacts)', fontsize=8)
+
+        self.frags_coverage = np.arange(1000, 0, -1)
+        self.id_frags = np.arange(0, 1000)
+
+        self.plot_data_coverage = self.axes_model.plot(self.id_frags, self.frags_coverage, 'r')[0]
+        pylab.setp(self.axes_model.get_yticklabels(), fontsize=8)
+
+    def draw_plot_coverage(self):
+
+        self.axes_model.set_xbound(lower=0, upper=np.max(self.id_frags))
+        self.axes_model.grid(True, color='gray')
+        pylab.setp(self.axes_model.get_xticklabels(),
+            visible=True)
+        self.plot_data_obs.set_xdata(self.kb_bins)
+        self.plot_data_coverage.set_ydata(self.frags_coverage)
+
+        # self.axes_model.set_yscale('log')
+        # self.axes_model.set_xscale('log')
+
+        self.canvas_coverage.draw()
+
+    def init_plot_model(self):
+        self.dpi = 100
+        self.fig_model = Figure((3.0, 3.0), dpi=self.dpi)
+
+        self.axes_model = self.fig_model.add_subplot(111)
+        self.axes_model.set_axis_bgcolor('black')
+        self.axes_model.set_title('Observed Vs Expected contacts', size=8)
+
+        pylab.setp(self.axes_model.get_xticklabels(), fontsize=8)
+        pylab.setp(self.axes_model.get_yticklabels(), fontsize=8)
+
+        self.axes_model.set_xlabel('Genomic distance (kb)', fontsize=6)
+        self.axes_model.set_ylabel('N contacts', fontsize=6)
+
+        self.obs_contacts = np.arange(1000, 10, -1)
+        self.model_contacts = np.arange(1000, 10, -1)
+        self.kb_bins = np.arange(10, 1000)
+
+        self.plot_data_obs = self.axes_model.loglog(self.kb_bins, self.obs_contacts, 'w')[0]
+        self.plot_data_mod = self.axes_model.loglog(self.kb_bins, self.model_contacts, '--r')[0]
+
+        self.axes_model.legend(['obs', 'fit'], fontsize=8)
+
+        pylab.setp(self.axes_model.get_yticklabels(), fontsize=8)
+
+    def draw_plot_model(self):
+
+        self.axes_model.set_xbound(lower=0, upper=np.max(self.kb_bins))
+        self.axes_model.grid(True, color='gray')
+        pylab.setp(self.axes_model.get_xticklabels(),
+            visible=True)
+        self.plot_data_obs.set_xdata(self.kb_bins)
+        self.plot_data_obs.set_ydata(np.array(self.obs_contacts))
+
+        self.plot_data_obs.set_xdata(self.kb_bins)
+        self.plot_data_obs.set_ydata(self.model_contacts)
+
+        # self.axes_model.set_yscale('log')
+        # self.axes_model.set_xscale('log')
+
+        self.canvas_model.draw()
+
     def init_plot(self):
         self.dpi = 100
         self.fig = Figure((3.0, 3.0), dpi=self.dpi)
-
         self.list_str_opt_param = ['N contigs',
                                    'Mean length of the contigs (kb)',
                                    'Distance to G0',
@@ -708,6 +801,7 @@ class GraalFrame(wx.Frame):
         self.opt_ax.append(self.axes.twinx())
         pylab.setp(self.opt_ax[-1].get_yticklabels(), fontsize=8)
         self.opt_plot.append(self.opt_ax[-1].plot(self.iterations, self.data_opt[4],'c')[0])
+
 
 
     def draw_plot(self):
@@ -813,6 +907,15 @@ class GraalFrame(wx.Frame):
         self.data_opt[4].append(d_max)
         self.draw_plot()
 
+    def redraw_parameters(self, kb_bins, obs_contacts, model_contacts):
+        # if paused do not add data, but still redraw the plot
+        # (to respond to scale modifications, grid change, etc.)
+        #
+        self.kb_bins = kb_bins
+        self.obs_contacts = obs_contacts
+        self.model_contacts = model_contacts
+        self.draw_plot_model()
+
 
     def on_redraw_timer(self, event):
         # if paused do not add data, but still redraw the plot
@@ -821,7 +924,7 @@ class GraalFrame(wx.Frame):
         #
         if not self.processing:
             self.draw_plot()
-
+            self.draw_plot_model()
 
     def on_export_button(self, event):
         if self.select != None:

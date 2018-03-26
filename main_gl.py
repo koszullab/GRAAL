@@ -20,12 +20,13 @@ from simulation_loader import simulation
 class window(object):
 
     def __init__(self, pyramid, name, level, n_iterations, is_simu, scrambled, perform_em, sample_param, output_folder,
-                 fasta_file, candidates_blacklist, n_neighbours, allow_repeats, id_selected_gpu,
+                 fasta_file, candidates_blacklist, n_neighbours, threshold_coverage, allow_repeats, id_selected_gpu,
                  main_thread):
         #mouse handling for transforming scene
         id_exp = 0
         self.main_thread = main_thread
         self.n_neighbours = n_neighbours
+        self.threshold_coverage = threshold_coverage
         self.id_selected_gpu = id_selected_gpu
         self.use_rippe = True
         self.mouse_down = False
@@ -78,7 +79,17 @@ class window(object):
         self.use_rippe = True
 
         self.simulation = simulation(pyramid, name, level, n_iterations, is_simu, self, self.output_folder,
-                                     self.fasta_file, candidates_blacklist, self.allow_repeats)
+                                     self.fasta_file, candidates_blacklist, self.allow_repeats, self.threshold_coverage)
+
+        ################################################################################################################
+        ### TEST  #####
+        new_slope = -1.5
+        # self.simulation.sampler.lower_model_slope(new_slope)
+        # self.simulation.sampler.update_vect_model()
+        self.main_thread.update_gui_parameters(self.simulation.sampler.bins_upd,
+                                               self.simulation.sampler.mean_contacts_upd,
+                                               self.simulation.sampler.y_estim)
+        ################################################################################################################
         self.texid= self.simulation.texid
         self.init_n_frags = self.simulation.init_n_frags
         print "n init frags = ", self.init_n_frags
@@ -278,8 +289,7 @@ class window(object):
                 self.collect_success.append(success)
 
             o, d, d_high = self.simulation.sampler.display_current_matrix(self.simulation.output_matrix_em)
-
-        self.simulation.export_new_fasta()
+            self.simulation.export_new_fasta()
         self.save_behaviour_to_txt()
 
     def init_4_sub_sampling(self, fact, id_exp):
@@ -747,44 +757,13 @@ class window(object):
             self.start_EM()
         elif args[0] == 'w':
             self.white *= -1
-        # elif args[0] == 'e':
-        #     # idn0, nscore0, x0, y0, z0 = self.new_test_model(self.curr_frag, '', '')
-        #     # self.collect_4_graph3d[self.iter] = dict()
-        #     # self.collect_4_graph3d[self.iter]['x0'] = x0
-        #     # self.collect_4_graph3d[self.iter]['y0'] = y0
-        #     # self.collect_4_graph3d[self.iter]['z0'] = z0
-        #
-        #     self.simulation.plot_info_simu(self.collect_likelihood, self.collect_n_contigs, self.file_n_contigs,
-        #                                    "n_contigs")
-        #     self.simulation.plot_info_simu(self.collect_likelihood, self.collect_mean_len, self.file_mean_len,
-        #                                    "mean length contigs")
-        #     self.simulation.plot_info_simu(self.collect_likelihood, self.collect_dist_from_init_genome, self.file_dist_init_genome,
-        #                                "distance from init genome")
-        #     self.simulation.plot_info_simu(self.collect_likelihood_nuisance, self.collect_slope, self.file_slope,
-        #                                "slope")
-        #     self.simulation.plot_info_simu(self.collect_likelihood_nuisance, self.collect_fact, self.file_fact,
-        #                                "scale factor")
-        #     self.simulation.plot_info_simu(self.collect_likelihood_nuisance, self.collect_d_nuc, self.file_d_nuc,
-        #                    "val trans")
-        #     self.simulation.plot_info_simu(self.collect_likelihood_nuisance, self.collect_d, self.file_d,
-        #                    "d")
-        #     self.simulation.plot_info_simu(self.collect_likelihood_nuisance, self.collect_d_max, self.file_d_max,
-        #                    "dist max intra")
-        #
-        #     # if self.sample_param:
-        #     if 1 == 1:
-        #         plt.figure()
-        #         plt.loglog(self.bins_rippe, self.y_eval, '-b')
-        #         plt.loglog(self.bins_rippe, self.simulation.sampler.mean_contacts, '-*r')
-        #         plt.xlabel("genomic separation ( kb)")
-        #         plt.ylabel("n contacts")
-        #         plt.title("rippe curve")
-        #         plt.legend(["fit", "obs"])
-        #         plt.show()
-        #     self.simulation.sampler.display_modif_vect(0, 0, -1, 100)
-        #     self.save_behaviour_to_txt()
-        #     self.simulation.export_new_fasta()
-        #     o, d, d_high = self.simulation.sampler.display_current_matrix(self.simulation.output_matrix_em)
+        elif args[0] == 'b':
+            self.modify_image_thresh(-1)
+        elif args[0] == 'd':
+            self.modify_image_thresh(1)
+        elif args[0] == 'e':
+            print "export fasta"
+            self.simulation.export_new_fasta()
 
     def on_click(self, button, state, x, y):
         if state == GLUT_DOWN:
@@ -952,3 +931,7 @@ class window(object):
         if not blending :
             glDisable(GL_BLEND)
 
+
+    def modify_image_thresh(self, val):
+        """ modify threshold of the matrix """
+        self.simulation.sampler.modify_image_thresh(val)

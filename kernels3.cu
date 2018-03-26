@@ -3,7 +3,7 @@
 extern "C"
 {
     texture<unsigned char, 2> tex;
-
+//    texture<unsigned char, 2> tex;
 //    texture<float, 2, cudaReadModeElementType> texData;
 
     typedef struct frag {
@@ -34,8 +34,7 @@ extern "C"
         float v_inter __attribute__ ((packed));
     } param_simu;
 
-    #if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 600
-    #else
+
     __device__ double atomicAdd(double* address, double val)
     {
         unsigned long long int* address_as_ull = (unsigned long long int*)address;
@@ -48,7 +47,6 @@ extern "C"
         } while (assumed != old);
         return __longlong_as_double(old);
     }
-    #endif
     __global__ void init_rng(int nthreads, curandState *s, unsigned long long seed, unsigned long long offset)
     {
             int id = blockIdx.x*blockDim.x + threadIdx.x;
@@ -3184,7 +3182,7 @@ extern "C"
                                  for (i = 0; i <= limit_fi; i ++){
                                     for (j = 0 ; j <=  limit_fj; j ++){
 
-                                         norm_accu = int2float(list_accu_data_i[i] * list_accu_data_j[j]) / n_frags_per_bins;
+//                                         norm_accu = int2float(list_accu_data_i[i] * list_accu_data_j[j]) / n_frags_per_bins;
                                          /// DEBUG ////
 //                                         norm_accu = 1;
                                          /// DEBUG ////
@@ -3549,9 +3547,9 @@ extern "C"
                                     for (j_spec = 0; j_spec <=  limit_fj; j_spec ++){
                                          s = fabsf(list_s_fj[j_spec] - list_s_fi[i_spec]);
                                          ////////////////////////////////////////////
-                                         norm_accu = int2float(list_accu_data_i[i_spec] * list_accu_data_j[j_spec]) / n_frags_per_bins;
+//                                         norm_accu = int2float(list_accu_data_i[i_spec] * list_accu_data_j[j_spec]) / n_frags_per_bins;
                                          /// DEBUG ////
-//                                         norm_accu = 1;
+                                         norm_accu = 1;
                                          /// DEBUG ////
                                          if (fragArray->circ[fi] == 1){
                                              expected_cis =  rippe_contacts_circ(s, s_tot, p) * norm_accu;
@@ -3668,9 +3666,9 @@ extern "C"
                                              local_storage_obs[local_sub_pos_fi[i_spec]][local_sub_pos_fj[j_spec]] = obsD;
                                          }
                                          ////////////////////////////////////////////
-                                         norm_accu = int2float(list_accu_data_i[i_spec] * list_accu_data_j[j_spec]) / n_frags_per_bins;
+//                                         norm_accu = int2float(list_accu_data_i[i_spec] * list_accu_data_j[j_spec]) / n_frags_per_bins;
                                          /// DEBUG ////
-//                                         norm_accu = 1;
+                                         norm_accu = 1;
                                          /// DEBUG ////
                                          expected_trans = p.v_inter * norm_accu;
                                          /////////// DEBUG ///////////////////////////////////
@@ -3774,7 +3772,7 @@ extern "C"
     }
 
 
-    __global__ void reorder_tex(unsigned char* data, int* index_new, int n_frags)
+    __global__ void reorder_tex(unsigned char* data, int* index_new, char thresh, int n_frags)
     {
         int i = threadIdx.x + blockDim.x * blockIdx.x;
         int j = threadIdx.y + blockDim.y * blockIdx.y;
@@ -3782,44 +3780,39 @@ extern "C"
         {
             int i_new = index_new[i];
             int j_new = index_new[j];
+            unsigned char out;
+            unsigned char tmp_out = tex2D(tex, (float) i_new, (float) j_new);
+            float ratio = (float) tmp_out / (float) thresh;
+            if (tmp_out > thresh){
+                out = 255;
+            }
+            else{
+                out = (char) (ratio * 255);
+            }
+            data[i + j * n_frags]  = out;
+        }
+    }
 
-            unsigned char out = tex2D(tex, (float) i_new, (float) j_new);
+
+    __global__ void modify_contrast(unsigned char* data, int thresh, int n_frags)
+    {
+        int i = threadIdx.x + blockDim.x * blockIdx.x;
+        int j = threadIdx.y + blockDim.y * blockIdx.y;
+        if ((i < n_frags) && (j < n_frags))
+        {
+            unsigned char tmp_out = tex2D(tex, (float) i, (float) j);
+            unsigned char out;
+            float ratio = (float) tmp_out / (float) thresh;
+            if (tmp_out > thresh){
+                out = 255;
+            }
+            else{
+                out = (char) (ratio * 255);
+            }
             data[i + j * n_frags]  = out;
 
         }
     }
-
-//    __global__ void reorder_tex(unsigned char* data, frag* fragArray, int* cum_id_c, int n_frags)
-//    {
-//        int i = threadIdx.x + blockDim.x * blockIdx.x;
-//        int j = threadIdx.y + blockDim.y * blockIdx.y;
-//        if ((i < n_frags) && (j < n_frags))
-//        {
-//            int rep_i = fragArray->rep[i];
-//            int rep_j = fragArray->rep[j];
-//            if ( (rep_i == 0) && (rep_j == 0))
-//            {
-//                int pos_i = fragArray->pos[i];
-//                int pos_j = fragArray->pos[j];
-//
-//                int id_c_i = fragArray->id_c[i];
-//                int id_c_j = fragArray->id_c[j];
-//
-//                int offset_i = cum_id_c[id_c_i];
-//                int offset_j = cum_id_c[id_c_j];
-//
-//                int i_new = offset_i + pos_i;
-//                int j_new = offset_j + pos_j;
-//
-//                unsigned char out = tex2D(tex, (float) i, (float) j);
-////                data[i_new + j_new * n_frags]  = out;
-//            }
-//        }
-//    }
-
-
-
-
 
     __global__ void gl_update_pos(float4* pos,
                                   float4* color,
@@ -3907,67 +3900,7 @@ extern "C"
 
 
 
-//    __global__ void gl_update_pos(float4* pos,
-//                                  float4* color,
-//                                  float4* vel,
-//                                  float4* pos_gen,
-//                                  float4* vel_gen,
-//                                  frag* fragArray,
-//                                  int * old_2_new_idx,
-//                                  int* id_contigs,
-//                                  float max_len,
-//                                  float max_id,
-//                                  int n_frags,
-//                                  int id_fi,
-//                                  int min_id_c_new,
-//                                  curandState* state, int n_rng, float dt)
-//    {
-//        //get our index in the array
-//        int id_frag =  threadIdx.x + blockDim.x * blockIdx.x;
-//        if (id_frag  < n_frags){
-//
-//            int id_rng = id_frag % n_rng;
-//            float shift_y = (curand_normal(&state[id_rng]) * 0.25) + 0.25;
-//            int id_c = fragArray->id_c[id_frag];
-//            int id_c_new = old_2_new_idx[id_c];
-//            fragArray->id_c[id_frag] = id_c_new;
-//            id_contigs[id_frag] = id_c_new;
-//            float life = vel[id_frag].w;
-//            if (fragArray->l_cont[id_frag] > 1){
-//                pos[id_frag].x = int2float(fragArray->pos[id_frag])/ max_len + 0.01f;
-//                pos[id_frag].y = (int2float(id_c_new - min_id_c_new) + shift_y * (id_frag == id_fi)) / (max_id-min_id_c_new);
-////                pos[id_frag].x = int2float(fragArray->pos[id_frag])/ max_len + 0.01f;
-////                pos[id_frag].y = (int2float(id_c_new - min_id_c_new) + shift_y * (id_frag == id_fi)) / (max_id-min_id_c_new) + 0.01f;
-//                pos[id_frag].z = 0;
-//                color[id_frag].w = 1.5;
-//            }
-//            else{
-//                float4 p = pos[id_frag];
-//                float4 v = vel[id_frag];
-//                life -= dt;
-//                if(life <= 0.f)
-//                {
-//                    p = pos_gen[id_frag];
-//                    v = vel_gen[id_frag];
-//                    life = 1.0f;
-//                }
-//                v.z -= 9.8f*dt;
-//
-//                p.x += v.x*dt;
-//                p.y += v.y*dt;
-//                p.z += v.z*dt;
-//                v.w = life;
-//
-//                //update the arrays with our newly computed values
-//                pos[id_frag] = p;
-//                vel[id_frag] = v;
-//
-//                //you can manipulate the color based on properties of the system
-//                //here we adjust the alpha
-//                color[id_frag].w = life;
-//            }
-//        }
-//    }
+
 
 } // extern "C"
 

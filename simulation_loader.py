@@ -6,7 +6,7 @@ import math, sys, time
 import os
 import sys, socket
 import pyramid_sparse as pyr
-from PIL import Image
+import Image
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from OpenGL.GLUT import *
@@ -39,12 +39,13 @@ def kth_diag_indices(a, k):
 
 class simulation():
     def __init__(self, pyramid, name, level, n_iterations, is_simu, gl_window, output_folder, fasta_file,
-                 candidates_blacklist, allow_repeats):
+                 candidates_blacklist, allow_repeats, threshold_coverage):
         self.name = name
         self.use_rippe = True
         self.str_sub_level = str(level - 1)
         self.str_level = str(level)
         self.allow_repeats = allow_repeats
+        self.threshold_coverage = threshold_coverage
         ################################################################################################################
         self.hic_pyr = pyramid
         self.output_folder = output_folder
@@ -103,26 +104,44 @@ class simulation():
                                    self.sub_im_curr,
                                    self.sub_level.mean_value_trans, n_iterations,
                                    is_simu, self.gl_window, self.pos_vbo, self.col_vbo, self.vel, self.pos,
-                                   self.raw_im_init, self.pbo_im_buffer,
+                                   self.raw_im_init, self.pbo_im_buffer, self.thresh,
                                    fact_sub_sampling)
 
         self.sampler.setup_texture()
 
-        self.sampler.gpu_vect_frags.copy_from_gpu()
+        # self.sampler.gpu_vect_frags.copy_from_gpu()
+        # id_start = np.nonzero(self.sampler.gpu_vect_frags.start_bp == 0)[0]
+        # max_dist_kb = self.sampler.gpu_vect_frags.l_cont_bp[id_start].max() / 1000.
+        # print "max dist kb = ", max_dist_kb
+        # # size_bin_kb = self.sampler.gpu_vect_frags.len_bp.mean() / 1000.0
+        # size_bin_kb = self.sampler.gpu_vect_frags.len_bp.mean() / 1000.0
+        # print "mean size kb = ", size_bin_kb
+        #
+        # print "min fragment length = ", self.sampler.gpu_vect_frags.len_bp.min() / 1000.0
+        #
+        # if is_simu:
+        #     self.sampler.simulate_rippe_contacts(100, 9.6, -1.5, 0.5, 1, 800, 200)
+        # else:
+        #     if self.use_rippe:
+        #         self.sampler.estimate_parameters(max_dist_kb, size_bin_kb)
+        #     else:
+        #         self.sampler.estimate_parameters_rv(max_dist_kb, size_bin_kb)
         id_start = np.nonzero(self.sampler.gpu_vect_frags.start_bp == 0)[0]
-        mean_dist_kb = self.sampler.gpu_vect_frags.l_cont_bp[id_start].mean() / 1000.
-        print "mean dist kb = ", mean_dist_kb
-        size_bin_kb = self.sampler.gpu_vect_frags.len_bp.mean() / 1000.0
-        print "mean size kb = ", size_bin_kb
+        max_dist_kb = self.sampler.gpu_vect_frags.l_cont_bp[id_start].max() / 1000.
+        print "max dist kb = ", max_dist_kb
+        # size_bin_kb = self.sampler.gpu_vect_frags.len_bp.mean() / 1000.0
+        mean_size_bin_kb = self.sub_level.S_o_A_frags['len_bp'].mean() / 1000.0
 
+        print "mean size kb = ", mean_size_bin_kb
 
+        print "min fragment length = ", self.sub_level.S_o_A_frags['len_bp'].min() / 1000.0
         if is_simu:
             self.sampler.simulate_rippe_contacts(100, 9.6, -1.5, 0.5, 1, 800, 200)
         else:
             if self.use_rippe:
-                self.sampler.estimate_parameters(mean_dist_kb, size_bin_kb)
+                self.sampler.estimate_parameters(max_dist_kb, mean_size_bin_kb / 2.)
             else:
-                self.sampler.estimate_parameters_rv(mean_dist_kb, size_bin_kb)
+                self.sampler.estimate_parameters_rv(max_dist_kb, mean_size_bin_kb / 2)
 
         # self.sampler.setup_texture()
 
@@ -191,8 +210,8 @@ class simulation():
         max_id_C = init_vect_frags['id_c'].max() + 1
 
         # HSV_tuples = [(x*1.0/(max_id_C - 1), 0.5, 0.5) for x in range(0, (max_id_C-1))]
-        # cmap = plt.cm.gist_ncar
-        cmap = plt.cm.prism
+        cmap = plt.cm.gist_ncar
+        # cmap = plt.cm.prism
         # extract all colors from the .jet map
         cmaplist = [cmap(i) for i in range(cmap.N)]
         id_smple = np.linspace(0,cmap.N, num=max_id_C)
@@ -311,7 +330,7 @@ class simulation():
         coverage = self.matrix_normalized.sum(axis=1)
         mean_coverage = coverage.mean()
         std_coverage = coverage.std()
-        mean_coverage_ext = mean_coverage + 2 * std_coverage
+        mean_coverage_ext = mean_coverage + 2. * std_coverage
         candidates_dup = np.nonzero(coverage > mean_coverage_ext)[0]
         plt.figure()
         # plt.hist(coverage, 100)
@@ -373,7 +392,7 @@ class simulation():
         mean_coverage = coverage.mean()
 
         std_coverage = coverage.std()
-        mean_coverage_ext = mean_coverage + 3 * std_coverage
+        mean_coverage_ext = self.threshold_coverage
         candidates_dup = np.nonzero(coverage > mean_coverage_ext)[0]
 
         # DEBUGGGG #########################
@@ -382,8 +401,8 @@ class simulation():
         # ##################################
         print "candidate frags for duplication = ", candidates_dup
 
-        # candidates_dup = range(1978, 2009)
-        print "you have selected: ", candidates_dup
+
+        # print "you have selected: ", candidates_dup
         output_data = []
         for ele in candidates_dup:
             cov_ele = coverage[ele]
@@ -392,197 +411,6 @@ class simulation():
             output_data.append((ele, estim_n_dup))
         print "duplicated data = ", output_data
         return candidates_dup, output_data
-
-    def select_data_set(self, name):
-
-        hostname = socket.gethostname()
-        print "Host name:", hostname
-        ordi = hostname.split('.')[0]
-        if name == 'tricho' or name == 'tricho_rutc30' or name == 'tricho_qm6a':
-            size_pyramid = 6
-        elif name == 'ykf1246_new_hq' or name == 'ykf1246_new_ref_hq' or name == 'ykf1246_axel':
-            size_pyramid = 6
-        elif name == "amibes_full_2014":
-            size_pyramid = 7
-        elif name == "community_33" or name == "community_75" or name == 'community_24' or name == 'community_0' or name == 'community_axel':
-            size_pyramid = 6
-        elif name == 'yvette_comm_0':
-            size_pyramid = 6
-        elif name == 'yvette_comm_156':
-            size_pyramid = 6
-        elif name == 'yvette_comm_0_156':
-            size_pyramid = 6
-        elif name == 'yvette_comm_2':
-            size_pyramid = 5
-        elif name == 'meta_ecoli' or name == '3bacts' or name == 'com2_3bacts' :
-            size_pyramid = 6
-        else: # or name == '3bacts' or name == 'meta_ecoli'
-            size_pyramid = 4
-
-        if name == 'ykf1246_new_hq':
-            factor = 3
-        # elif name == 'ykf1246_new_ref_hq_2' or name == 'ykf1246_axel':
-        elif name == 'ykf1246_new_ref_hq_2':
-            factor = 2
-        else:
-            factor = 3
-        min_bin_per_contig = 1
-        size_chunk = 5000
-
-        self.data_set = dict()
-        self.data_set['malesian'] = 'malesian/'
-        self.data_set['community_0'] = 'community_0/'
-        self.data_set['community_33'] = 'community_33/'
-        self.data_set["community_75"] = "community_75"
-        self.data_set['community_24'] = 'community_24'
-        self.data_set['community_axel'] = 'community_axel'
-        self.data_set['S1'] = 'S1/'
-        self.data_set['3bacts'] = '3bacts/'
-        self.data_set['meta_ecoli'] = 'meta_ecoli/'
-        self.data_set['com2_3bacts'] = 'com2_3bacts/'
-        self.data_set['G1'] = 'G1/'
-        self.data_set['tricho'] = 'tricho/'
-        self.data_set['tricho_rutc30'] = 'tricho_rutc30'
-        self.data_set['tricho_qm6a'] = 'tricho_qm6a'
-        self.data_set['ykf1246'] = 'ykf1246'
-        self.data_set['ykf1246_new'] = 'ykf1246_new'
-        self.data_set['ykf1246_new_hq'] = 'ykf1246_new_hq'
-        self.data_set['ykf1246_new_ref_hq_2'] = 'ykf1246_new_ref_hq_2'
-        self.data_set['ykf1246_axel'] = 'ykf1246_axel'
-        self.data_set['ykf175n'] = 'ykf175n'
-        self.data_set['amibes_full_2014'] = 'amibes_full_2014'
-        self.data_set['yvette_comm_0'] = 'yvette_comm_0'
-        self.data_set['yvette_comm_156'] = 'yvette_comm_156'
-        self.data_set['yvette_comm_0_156'] = 'yvette_comm_0_156'
-        self.data_set['yvette_comm_2'] = 'yvette_comm_2'
-        selected = name
-
-        if ordi == 'matisse':
-            if selected == 'tricho' or selected == 'tricho_rutc30' or selected == 'tricho_qm6a':
-                self.data_set_root = '/media/hervemn/LaCie/data_hic/data_set_assembly/'
-                self.fasta = '/media/hervemn/LaCie/data_hic/fasta_genomes/trichoderma/trichoderma_new.fa'
-            else:
-                self.data_set_root = '/media/hervemn/data/data_set_assembly/'
-                if self.name == "community_33":
-                    self.fasta = '/media/hervemn/data/genome_fasta/community_33/community_33.fasta'
-                elif self.name == "community_75":
-                    self.fasta = '/media/hervemn/data/genome_fasta/community_75/community_75.fasta'
-                elif self.name == 'community_24':
-                    self.fasta = '/media/hervemn/data/genome_fasta/community_24/community_24.fasta'
-                elif self.name == 'community_axel':
-                    self.fasta = '/media/hervemn/data/genome_fasta/community_axel/community_axel.fasta'
-
-                else:
-                    self.fasta = '/media/hervemn/LaCie/data_hic/fasta_genomes/cerevisiae_classic/new_ref_genome.fsa'
-            self.dir_home = '/home/hervemn/'
-
-        if ordi == 'rv-retina':
-            self.data_set_root = '/Volumes/VeryBigData/HiC/data_set_assembly'
-            self.dir_home = '/Users/hervemarie-nelly/'
-            if selected == "tricho" or selected == 'tricho_rutc30' or selected == 'tricho_qm6a':
-                self.fasta = '/Volumes/VeryBigData/HiC/fasta_genomes/trichoderma/trichoderma_new.fa'
-            else:
-                self.fasta = '/Volumes/VeryBigData/HiC/fasta_genomes/cerevisiae_classic/new_ref_genome.fsa'
-
-
-        if ordi == 'loopkin':
-            self.data_set_root = '/data/hervemn/data_set_assembly/'
-            self.dir_home = '/home/hervemn/'
-
-            if selected == "tricho" or selected == 'tricho_rutc30' or selected == 'tricho_qm6a':
-                self.fasta = '/data/hervemn/alignment_toolbox/fasta_genomes/trichoderma/trichoderma_new.fa'
-            elif selected == "amibes_full_2014":
-                self.fasta = '/data/hervemn/alignment_toolbox/fasta_genomes/amoeba/EHI_v13.fa'
-            elif selected == 'community_0':
-                self.fasta = '/data/hervemn/data_set_assembly/community_0/analysis/community_0.fasta'
-            elif selected == 'community_24':
-                self.fasta = '/data/hervemn/data_set_assembly/community_24/analysis/community_24.fasta'
-            elif selected == 'community_33':
-                self.fasta = '/data/hervemn/data_set_assembly/community_33/analysis/community_33.fasta'
-            elif selected == 'community_75':
-                self.fasta = '/data/hervemn/data_set_assembly/community_75/analysis/community_75.fasta'
-            elif selected == 'community_axel':
-                self.fasta = '/data/hervemn/data_set_assembly/community_axel/analysis/community_axel.fasta'
-            elif selected == 'yvette_comm_0':
-                self.fasta = '/data/hervemn/data_set_assembly/yvette_comm_0/analysis/community_0.fasta'
-            else:
-                self.fasta = '/data/hervemn/alignment_toolbox/fasta_genomes/cerevisiae_classic/new_ref_genome.fsa'
-
-
-        if ordi == 'duvel':
-            self.data_set_root = '/media/hervemn/data/HiC/data_set_assembly/'
-            self.dir_home = '/home/hervemn/'
-            if selected == 'tricho' or selected == 'tricho_rutc30' or selected == 'tricho_qm6a':
-                self.fasta = '/media/hervemn/data/HiC/fasta_genomes/trichoderma/trichoderma_new.fa'
-            elif selected == 'community_0':
-                self.fasta = '/media/hervemn/data/HiC/data_set_assembly/community_0/analysis/community_0.fasta'
-            elif selected == 'community_24':
-                self.fasta = '/media/hervemn/data/HiC/data_set_assembly/community_24/analysis/community_24.fasta'
-            elif selected == 'community_33':
-                self.fasta = '/media/hervemn/data/HiC/data_set_assembly/community_33/analysis/community_33.fasta'
-            elif selected == 'community_75':
-                self.fasta = '/media/hervemn/data/HiC/data_set_assembly/community_75/analysis/community_75.fasta'
-
-            elif selected == 'community_axel':
-                self.fasta = '/media/hervemn/data/HiC/data_set_assembly/community_axel/analysis/community_axel.fasta'
-            elif selected == '3bacts':
-                self.fasta = '/media/hervemn/data/HiC/data_set_assembly/3bacts/analysis/contigs_3bacts.fasta'
-
-            elif selected == 'meta_ecoli':
-                self.fasta = '/media/hervemn/data/HiC/data_set_assembly/meta_ecoli/analysis/community_1.fasta'
-
-            elif selected == 'com2_3bacts':
-                self.fasta = '/media/hervemn/data/HiC/data_set_assembly/com2_3bacts/analysis/community_2.fasta'
-
-            elif selected == 'yvette_comm_0':
-                self.fasta = '/media/hervemn/data/HiC/data_set_assembly/yvette_comm_0/analysis/community_0.fasta'
-            elif selected == 'yvette_comm_156':
-                self.fasta = '/media/hervemn/data/HiC/data_set_assembly/yvette_comm_156/analysis/community_156.fasta'
-
-            elif selected == 'yvette_comm_0_156':
-                self.fasta = '/media/hervemn/data/HiC/data_set_assembly/yvette_comm_0_156/analysis/community_0_156.fasta'
-            elif selected == 'yvette_comm_2':
-                self.fasta = '/media/hervemn/data/HiC/data_set_assembly/yvette_comm_2/analysis/community_2.fasta'
-
-            elif selected == 'amibes_full_2014':
-                self.fasta = '/media/hervemn/data/HiC/fasta_genomes/amoeba/EHI_v13.fa'
-            else:
-                self.fasta = '/media/hervemn/data/HiC/fasta_genomes/cerevisiae_classic/new_ref_genome.fsa'
-
-        default_level = size_pyramid - 1
-        self.base_folder = os.path.join(self.data_set_root, self.data_set[selected], 'analysis')
-        # self.hic_pyr = pyr.build_and_filter(self.base_folder, size_pyramid, factor, min_bin_per_contig, size_chunk,
-        #                                     default_level)
-        self.hic_pyr = pyr.build_and_filter(self.base_folder, size_pyramid, factor)
-
-        print "pyramid loaded"
-        ################################################################################################################
-        self.output_folder = os.path.join(self.data_set_root, 'results')
-
-        if not (os.path.exists(self.output_folder)):
-            os.mkdir(self.output_folder)
-        self.output_folder = os.path.join(self.data_set_root, 'results', self.data_set[selected])
-
-        if not (os.path.exists(self.output_folder)):
-            os.mkdir(self.output_folder)
-
-        if not (os.path.exists(self.output_folder)):
-            os.mkdir(self.output_folder)
-        self.output_folder = os.path.join(self.data_set_root, 'results', self.data_set[selected],
-                                          'test_mcmc_' + self.str_level)
-
-        if not (os.path.exists(self.output_folder)):
-            os.mkdir(self.output_folder)
-
-        if self.fact_sub_sampling > 0:
-            self.folder_sub_sampling = os.path.join(self.output_folder, 'sub_sampling')
-            if not (os.path.exists(self.folder_sub_sampling)):
-                os.mkdir(self.folder_sub_sampling)
-            self.output_folder = os.path.join(self.folder_sub_sampling, str(self.fact_sub_sampling))
-            if not (os.path.exists(self.output_folder)):
-                os.mkdir(self.output_folder)
-        ################################################################################################################
-
 
     def load_gl_buffers(self):
         num = self.n_frags
@@ -610,7 +438,7 @@ class simulation():
         self.vel[:,0] = 3.
         self.vel[:,3] = np.random.random_sample((self.n_frags, ))
 
-    def init_gl_image(self,):
+    def old_init_gl_image(self,):
 
         self.texid = 0
         self.pbo_im_buffer = glGenBuffers(1) # generate 1 buffer reference
@@ -618,42 +446,15 @@ class simulation():
         # self.raw_im_init = np.copy(self.level.im_curr)
         self.raw_im_init = np.copy(self.im_curr)
         idx_diag = np.diag_indices_from(self.raw_im_init)
-        if self.level > 3:
-            lim_intra = 5
-        elif self.level > 3 and self.name[:-3] == 'community':
-            lim_intra = 2
-            print "set up for community"
-        else:
-            lim_intra = 1
-            print "level < 3"
+
+        lim_intra = 4
+
         id_intra = kth_diag_indices(self.raw_im_init, lim_intra)
         thresh = self.raw_im_init[id_intra].mean()
-        if self.name == 'amibes_full_2014':
-            if int(self.str_level) <= 5:
-                thresh = 20.0
-            else:
-                thresh = 190.0
-        if self.name == 'community_24':
-            thresh = 5.0
-        elif self.name == 'community_0':
-            if int(self.str_level) <= 3:
-                thresh = 10.0
-            else:
-                thresh = 100.0
-        elif self.name == 'meta_ecoli':
-            if int(self.str_level) <= 2:
-                thresh = 5.0
-            else:
-                thresh = 10.0
-
-        elif self.name == 'yvette_comm_0':
-            thresh = 2
 
         self.raw_im_init[idx_diag] = 0
         idx_trans = np.triu_indices_from(self.raw_im_init,k=lim_intra)
         mean_val_trans = np.mean(self.raw_im_init[idx_trans])
-        # thresh = 0.01 * self.raw_im_init.max() # test 4 malaisian
-        # thresh = 0.0005 * self.raw_im_init.max() # ok for s1
         self.raw_im_init[self.raw_im_init > thresh] = thresh
         # self.raw_im_init = np.uint8((self.level.im_curr/thresh) * 255)
         self.raw_im_init = np.uint8((self.raw_im_init/thresh) * 255)
@@ -669,6 +470,38 @@ class simulation():
 
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1) # 1-byte row alignment
         glPixelStorei(GL_PACK_ALIGNMENT, 1) # 1-byte row alignment
+
+    def init_gl_image(self,):
+
+        self.texid = 0
+        self.pbo_im_buffer = glGenBuffers(1) # generate 1 buffer reference
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, self.pbo_im_buffer) # binding to this buffer
+        # self.raw_im_init = np.copy(self.level.im_curr)
+        self.raw_im_init = np.copy(self.im_curr)
+
+        lim_intra = 1
+
+        id_intra = kth_diag_indices(self.raw_im_init, lim_intra)
+
+        mean_val_diag = np.mean(self.raw_im_init[id_intra])
+        self.raw_im_init[self.raw_im_init>mean_val_diag] = mean_val_diag
+        self.raw_im_init = np.uint8((self.raw_im_init / mean_val_diag)*255)
+        self.thresh = 50
+
+        glBufferData(GL_PIXEL_UNPACK_BUFFER, self.init_n_frags * self.init_n_frags, self.raw_im_init, GL_STREAM_DRAW) # Allocate the buffer
+        bsize = glGetBufferParameteriv(GL_PIXEL_UNPACK_BUFFER, GL_BUFFER_SIZE) # Check allocated buffer size
+        assert(bsize == self.init_n_frags * self.init_n_frags)
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0) # Unbind
+
+        glGenTextures(1, self.texid) # generate 1 texture reference
+        glBindTexture(GL_TEXTURE_2D, self.texid) # binding to this texture
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, self.init_n_frags, self.init_n_frags,  0, GL_LUMINANCE, GL_UNSIGNED_BYTE, None) # Allocate the texture
+        glBindTexture(GL_TEXTURE_2D, 0) # Unbind
+
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1) # 1-byte row alignment
+        glPixelStorei(GL_PACK_ALIGNMENT, 1) # 1-byte row alignment
+
+
 
     def create_sub_frags(self):
         self.sub_frags_len_bp = []

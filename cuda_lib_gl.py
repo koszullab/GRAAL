@@ -23,8 +23,9 @@ import optim_rippe_curve_update as opti
 import optim_hic_curve as opti_rv
 from OpenGL.arrays import vbo
 from scipy import stats
+from scipy import ndimage as ndi
 import timing
-from PIL import Image
+import Image
 timings = timing.Timing()
 
 
@@ -38,7 +39,7 @@ class sampler():
                  mean_squared_frags_per_bin, norm_vect_accu,
                  S_o_A_sub_frags,
                  hic_matrix, mean_value_trans, n_iterations, is_simu, gl_window, pos_vbo, col_vbo, vel, pos,
-                 raw_im_init,pbo_im_buffer,
+                 raw_im_init,pbo_im_buffer, im_thresh,
                  sub_sample_factor):
         self.o = 0
         self.sub_sample_factor = sub_sample_factor
@@ -49,7 +50,7 @@ class sampler():
 
         self.raw_im_init = raw_im_init
         self.pbo_im_buffer = pbo_im_buffer
-
+        self.im_thresh = np.int8(min(im_thresh, 255))
         self.use_rippe = use_rippe
         self.gl_window = gl_window
         self.ctx = gl_window.ctx_gl
@@ -388,6 +389,7 @@ class sampler():
         self.copy_gpu_array = self.module.get_function("copy_gpu_array")
         self.gl_update_pos = self.module.get_function("gl_update_pos")
         self.gl_update_im = self.module.get_function("reorder_tex")
+        self.gl_update_im_thresh = self.module.get_function("modify_contrast")
         self.gpu_transloc = []
         self.pop_out = self.module.get_function('pop_out_frag')
         self.flip_frag = self.module.get_function('flip_frag')
@@ -546,7 +548,7 @@ class sampler():
         size_block = 512
         block_ = (size_block, 1, 1)
         n_block = self.init_n_values_triu_extra // (size_block) + 1
-        grid_all = (int(n_block / self.stride), 1)
+        grid_all = (int(max(n_block / self.stride, 1)), 1)
         print "block = ", block_
         print "grid_all = ", grid_all
         #####################################################################################
@@ -1234,7 +1236,7 @@ class sampler():
         """
         print "estimation of the parameters of the model"
         self.bins = np.arange(size_bin_kb, max_dist_kb + size_bin_kb, size_bin_kb)
-        # print "bins = ", self.bins
+
         self.mean_contacts = np.zeros_like(self.bins, dtype=np.float32)
         self.dict_collect = dict()
         self.gpu_vect_frags.copy_from_gpu()
@@ -1258,18 +1260,124 @@ class sampler():
                     else:
                         d = ((start_fi - start_fj - len_fj) + (len_fj + len_fi)/2.)/1000.
                     if d < max_dist_kb:
-                        id_bin = (d / size_bin_kb).astype(np.int)
+                        id_bin = min(np.abs(d / size_bin_kb), np.abs(len(self.bins)-1))
                         self.dict_collect[self.bins[id_bin]].append(ncontacts)
+
+
         for id_bin in xrange(0, len(self.bins)):
             k = self.bins[id_bin]
             tmp = np.mean(self.dict_collect[k])
             if np.isnan(tmp) or tmp == 0:
             # if np.isnan(tmp):
-                self.mean_contacts[id_bin] = epsi
+            #     print "removing nan"
+                self.mean_contacts[id_bin] = np.nan
             else:
                 self.mean_contacts[id_bin] = tmp
 
-        p, self.y_estim = opti.estimate_param_rippe(self.mean_contacts, self.bins)
+        self.mean_contacts_upd = []
+        self.bins_upd = []
+
+        for count, ele in zip(self.mean_contacts, self.bins):
+            if not np.isnan(count):
+                self.bins_upd.append(ele)
+                self.mean_contacts_upd.append(count)
+
+        self.bins_upd = np.array(self.bins_upd)
+        # self.mean_contacts_upd.sort()
+        # self.mean_contacts_upd.reverse()
+        self.mean_contacts_upd = np.array(self.mean_contacts_upd)
+
+        # self.mean_contacts_upd = ndi.filters.gaussian_filter1d(self.mean_contacts_upd, sigma=len(self.bins_upd) / 5.)
+
+        # print "size mean contacts vector = ", self.mean_contacts_upd.shape
+        # print "mean contacts vector = ", self.mean_contacts_upd
+
+        p, self.y_estim = opti.estimate_param_rippe(self.mean_contacts_upd, self.bins_upd)
+        ##########################################
+        print "p from estimate parameters  = ", p
+        # p = list(p[0])
+        # p[3] = 2
+        # p = tuple(p)
+        ##########################################
+        fit_param = p
+        print "mean value trans = ", self.mean_value_trans
+        ##########################################
+        # print "BEWARE!!! : I will set mean value trans as 0 !!!"
+        # self.mean_value_trans = 0.0
+        ##########################################
+
+        estim_max_dist = opti.estimate_max_dist_intra(fit_param, self.mean_value_trans)
+        self.param_simu = self.setup_rippe_parameters(fit_param, estim_max_dist)
+
+        self.gpu_param_simu = cuda.mem_alloc(self.param_simu.nbytes)
+        self.gpu_param_simu_test = cuda.mem_alloc(self.param_simu.nbytes)
+
+        cuda.memcpy_htod(self.gpu_param_simu, self.param_simu)
+
+
+    def old_estimate_parameters(self, max_dist_kb, size_bin_kb):
+        """
+        estimation by least square optimization of Rippe parameters on the experimental data
+        :param max_dist_kb:
+        :param size_bin_kb:
+        """
+        print "estimation of the parameters of the model"
+        self.bins = np.arange(size_bin_kb, max_dist_kb + size_bin_kb, size_bin_kb)
+
+        self.mean_contacts = np.zeros_like(self.bins, dtype=np.float32)
+        self.dict_collect = dict()
+        self.gpu_vect_frags.copy_from_gpu()
+        epsi = 10**-10
+        for k in self.bins:
+            self.dict_collect[k] = []
+        for i in xrange(0, self.sub_n_frags - 1):
+            id_c_i = self.S_o_A_sub_frags['id_c'][i]
+            start_fi = self.S_o_A_sub_frags['start_bp'][i]
+            len_fi = self.S_o_A_sub_frags['len_bp'][i]
+            pos_i = self.S_o_A_sub_frags['pos'][i]
+            for j in xrange(i + 1, self.sub_n_frags):
+                id_c_j = self.S_o_A_sub_frags['id_c'][j]
+                if id_c_i == id_c_j:
+                    ncontacts = self.hic_matrix[i, j]
+                    start_fj = self.S_o_A_sub_frags['start_bp'][j]
+                    len_fj = self.S_o_A_sub_frags['len_bp'][j]
+                    pos_j = self.S_o_A_sub_frags['pos'][j]
+                    if pos_i < pos_j:
+                        d = ((start_fj - start_fi - len_fi) + (len_fi + len_fj)/2.)/1000.
+                    else:
+                        d = ((start_fi - start_fj - len_fj) + (len_fj + len_fi)/2.)/1000.
+                    if d < max_dist_kb:
+                        id_bin = d / size_bin_kb
+                        self.dict_collect[self.bins[id_bin]].append(ncontacts)
+
+
+        for id_bin in xrange(0, len(self.bins)):
+            k = self.bins[id_bin]
+            tmp = np.mean(self.dict_collect[k])
+            if np.isnan(tmp) or tmp == 0:
+            # if np.isnan(tmp):
+                print "removing nan"
+                self.mean_contacts[id_bin] = np.nan
+            else:
+                self.mean_contacts[id_bin] = tmp
+
+        self.mean_contacts_upd = []
+        self.bins_upd = []
+
+        for count, ele in zip(self.mean_contacts, self.bins):
+            if not np.isnan(count):
+                self.bins_upd.append(ele)
+                self.mean_contacts_upd.append(count)
+
+        self.bins_upd = np.array(self.bins_upd)
+        self.mean_contacts_upd.sort()
+        self.mean_contacts_upd.reverse()
+        self.mean_contacts_upd = np.array(self.mean_contacts_upd)
+
+        print "size mean contacts vector = ", self.mean_contacts_upd.shape
+        print "mean contacts vector = ", self.mean_contacts_upd
+
+        p, self.y_estim = opti.estimate_param_rippe(self.mean_contacts_upd, self.bins_upd)
         ##########################################
         print "p from estimate parameters  = ", p
         # p = list(p[0])
@@ -1292,6 +1400,14 @@ class sampler():
         self.gpu_param_simu_test = cuda.mem_alloc(self.param_simu.nbytes)
 
         cuda.memcpy_htod(self.gpu_param_simu, self.param_simu)
+
+    def update_vect_model(self):
+
+        kuhn, lm, c1, slope, d, d_max, fact, d_nuc = self.param_simu[0]
+        # p0 = [kuhn, lm, slope, fact]
+        p0 = [kuhn, lm, slope, fact, d]
+        self.y_estim = opti.peval(self.bins_upd, p0)
+
 
     def estimate_parameters_rv(self, max_dist_kb, size_bin_kb):
         """
@@ -1619,8 +1735,12 @@ class sampler():
         # plt.imshow(self.hic_matrix[np.ix_(full_order_high, full_order_high)], vmin=0, vmax=20,
         #            interpolation='nearest')
         # plt.show()
-        output_image = Image.fromarray(self.hic_matrix[np.ix_(full_order_high, full_order_high)])
-        output_image.save(file)
+        try:
+            output_image = Image.fromarray(self.hic_matrix[np.ix_(full_order_high, full_order_high)])
+            output_image.save(file)
+        except OverflowError as O:
+            print "I can't display the matrix because of an error"
+            print str(O)
         return full_order, dict_contig, full_order_high
 
     def genome_content(self):
@@ -1780,15 +1900,27 @@ class sampler():
 
         gpu_cum_sum = ga.to_gpu(ary=self.np_gpu_cum_sum)
         gpu_new_index = ga.to_gpu(ary=new_index)
-        self.gl_update_im(np.intp(im_2_update), gpu_new_index, np.int32(self.n_frags),
+        self.gl_update_im(np.intp(im_2_update), gpu_new_index, np.uint8(self.im_thresh), np.int32(self.n_frags),
                           block=size_block, grid=size_grid, texrefs=[self.texref])
         self.ctx.synchronize()
         mapping_obj.unmap() # Unmap the GlBuffer
         max_id = np.int32(max_id)
         return max_id
 
-
-
+    def modify_image_thresh(self, val):
+        self.im_thresh += val
+        self.im_thresh = min(self.im_thresh, 255)
+        self.im_thresh = max(self.im_thresh, 1)
+        self.im_thresh = np.uint8(self.im_thresh)
+        # print "threshold image = ", self.im_thresh
+        size_block = (16, 16, 1)
+        size_grid = (int(self.n_frags / 16) + 1, int(self.n_frags / 16) + 1)
+        mapping_obj = self.cuda_pbo_resource.map()
+        im_2_update = mapping_obj.device_ptr()
+        self.gl_update_im_thresh(np.intp(im_2_update), self.im_thresh,
+                          block=size_block, grid=size_grid, texrefs=[self.texref])
+        self.ctx.synchronize()
+        mapping_obj.unmap() # Unmap the GlBuffer
 
     def step_max_likelihood(self, id_fA, delta, size_block, dt, t, n_step):
 
@@ -1821,7 +1953,7 @@ class sampler():
             block_ = (size_block, 1, 1)
             # stride = 10
             n_block = self.init_n_values_triu_extra // (size_block) + 1
-            grid_all = (int(n_block / self.stride), 1)
+            grid_all = (max([int(n_block / self.stride), 1]), 1)
             start.record()
             # print "dim block = ", block_
             # print "dim grid =", grid_all
@@ -1990,7 +2122,7 @@ class sampler():
         block_ = (size_block, 1, 1)
         # stride = 10
         n_block = self.init_n_values_triu_extra // (size_block) + 1
-        grid_all = (int(n_block / self.stride), 1)
+        grid_all = (max([int(n_block / self.stride), 1]), 1)
         start.record()
         # print "dim block = ", block_
         # print "dim grid =", grid_all
@@ -2018,6 +2150,20 @@ class sampler():
 
         return likelihood_star
 
+
+    def lower_model_slope(self, new_slope):
+
+        curr_param = np.copy(self.param_simu)
+        kuhn, lm, c1, slope, d, d_max, fact, d_nuc = curr_param[0]
+
+        new_fact = fact * 150
+        test_param = [kuhn, lm, new_slope, d, new_fact]
+        new_d_max = opti.estimate_max_dist_intra(test_param, d_nuc)
+        c1 = np.float32((0.53 * np.power(lm / kuhn, new_slope)) * np.power(kuhn, -3))
+        out_test_param = [(kuhn, lm, c1, new_slope, d, new_d_max, new_fact, d_nuc)]
+        out_test_param = np.array(out_test_param, dtype=self.param_simu_T)
+        cuda.memcpy_htod(self.gpu_param_simu, out_test_param)
+        self.param_simu = out_test_param
 
     def step_nuisance_parameters(self, dt, t, n_step):
 
@@ -2053,7 +2199,7 @@ class sampler():
             new_d_max = opti.estimate_max_dist_intra(test_param, d_nuc)
             c1 = np.float32((0.53 * np.power(lm / kuhn, slope)) * np.power(kuhn, -3))
             out_test_param = [(kuhn, lm, c1, slope, d, new_d_max, new_fact, d_nuc)]
-        elif id_modif == 1: # sclope
+        elif id_modif == 1: # slope
             new_slope = slope + np.random.normal(loc=0.0, scale=self.sigma_slope)
             test_param = [kuhn, lm, new_slope, d, fact]
             new_d_max = opti.estimate_max_dist_intra(test_param, d_nuc)
@@ -2363,7 +2509,7 @@ class sampler():
     def setup_distri_frags(self,):
         # generates random variables for every frags
         self.distri_frags = dict()
-        fact = 3
+        fact = 5
         for i in range(0, self.n_frags):
             v = np.float32(self.hic_matrix_sub_sampled[i, :])
             vtmp = np.copy(v)
@@ -2376,7 +2522,7 @@ class sampler():
 
             dat = vtmp[xk]**fact
 
-            if dat.sum() >0:
+            if dat.sum() > 0:
                 pk = dat / dat.sum()
             else:
                 tmp = np.ones_like(dat, dtype=np.float32)
